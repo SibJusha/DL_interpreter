@@ -41,6 +41,10 @@ public:
 
     [[nodiscard]] virtual int getValue() const = 0;
 
+    virtual void setLeft (std::unique_ptr<Expression<Returnable>>) = 0;
+
+    virtual void setRight (std::unique_ptr<Expression<Returnable>>) = 0;
+
 };
 
 class Val : public Expression<Val> {
@@ -63,7 +67,15 @@ public:
         return integer;
     }
 
-    static int parse () {
+    void setLeft (std::unique_ptr<Expression<Val>>) override {
+        throw parse_error();
+    }
+
+    void setRight (std::unique_ptr<Expression<Val>>) override {
+        throw parse_error();
+    }
+
+   static int parse () {
         int get;
         try {
             std::cin >> get;
@@ -97,6 +109,14 @@ public:
         throw getValue_error();
     }
 
+    void setLeft (std::unique_ptr<Expression<Val>>) override {
+        throw parse_error();
+    }
+
+    void setRight (std::unique_ptr<Expression<Val>>) override {
+        throw parse_error();
+    }
+
     static std::string parse () {
         std::string get;
         std::cin >> get;
@@ -105,18 +125,16 @@ public:
 
 };
 
-
-static std::unordered_map<std::string, Expression<Val>*> env;
+static std::unordered_map<std::string, std::unique_ptr<Expression<Val>>> env;
 static std::unique_ptr<Expression<Val>> fromEnv(const std::string& V) {
-    Expression<Val> *found;
+    std::unique_ptr<Expression<Val>> found;
     try {
-        found = env.at(V);
+        found = std::move(env.at(V));
     } catch (const std::out_of_range &exception) {
         throw exception;
     }
-    return std::unique_ptr<Expression<Val>>(found);
+    return found;
 }
-
 
 Val Var::eval() {
     Val found;
@@ -127,8 +145,6 @@ Val Var::eval() {
     }
     return found;
 }
-
-std::unique_ptr<Expression<Val>> Parser();
 
 class Add : public Expression<Val> {
     std::unique_ptr<Expression<Val>> left;
@@ -203,7 +219,7 @@ public:
     }
 
 };
-
+/*
 class Let : public Expression<Val> {
     std::unique_ptr<Expression<Val>> in;
 public:
@@ -269,7 +285,7 @@ public:
     }
 
 };
-
+*/
 /*
  * (add (val 3) (val 2))
  *
@@ -301,7 +317,7 @@ std::string RemoveUnnecessary_and_GetName(std::string& str) {
     return result;
 }
 
-std::unique_ptr<Expression<Val>> Parser() {
+/*std::unique_ptr<Expression<Val>> Parser() {
     std::string current, input;
     while (current.empty()) {
         std::cin >> input;
@@ -324,7 +340,7 @@ std::unique_ptr<Expression<Val>> Parser() {
     } catch (const std::exception& exception) {
         throw exception;
     }
-}
+}*/
 
 /* DumbHash(Expression_Name):
  * val = 111
@@ -344,8 +360,8 @@ size_t DumbHash (const std::string& str) {
 
 std::unique_ptr<Expression<Val>> Read_and_Create() {
 
-    std::stack<std::unique_ptr<Expression<Val>>> ParseStack;
-    std::stack<typeInHash> TypeStack;
+    std::deque<std::unique_ptr<Expression<Val>>> ParseStack;
+    std::deque<typeInHash> TypeStack;
     std::unique_ptr<Expression<Val>> result;
 
     std::string current, input;
@@ -359,17 +375,15 @@ std::unique_ptr<Expression<Val>> Read_and_Create() {
             switch (cur) {
                 case val:
                     result = std::make_unique<Val>(Val::parse());
-                    ParseStack.push(result);
-                    TypeStack.push(val);
+                    ParseStack.push_back(result);
+                    TypeStack.push_back(val);
                     continue;
                 case var:
                     continue;
                 case add: {
-                    auto temp = new Add();
-                    std::unique_ptr<Expression<Val>> result_(temp);
-                    result = std::move(result_);
-                    ParseStack.push(result);
-                    TypeStack.push(add);
+                    result = std::make_unique<Add>();
+                    ParseStack.push_back(result);
+                    TypeStack.push_back(add);
                     continue;
                 }
                 case _if:
@@ -386,7 +400,31 @@ std::unique_ptr<Expression<Val>> Read_and_Create() {
         }
     }
 
+    //найти сложную структуру (не val/var) и считать нужные структуры выше по стеку (deque) и опустить стек
     while (!ParseStack.empty()) {
+        for (int i = (int) ParseStack.size() - 1; i >= 0; i--) {
+            switch (TypeStack[i]) {
+                case add:
+                    ParseStack[i]->setLeft(std::move(ParseStack[i+1]));
+                    ParseStack[i]->setRight(std::move(ParseStack[i+2]));
+                    ParseStack.erase(ParseStack.cbegin() + i + 1,
+                                     ParseStack.cbegin() + i + 2);
+                    TypeStack.erase(TypeStack.cbegin() + i + 1,
+                                    TypeStack.cbegin() + i + 2);
+                    break;
+                case _if:
+
+                    break;
+                case let:
+                    break;
+                case function:
+                    break;
+                case call:
+                    break;
+                default:
+                    continue;
+            }
+        }
 
     }
 

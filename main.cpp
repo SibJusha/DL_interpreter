@@ -466,13 +466,6 @@ public:
                 throw eval_error();
             }
         } catch (...) {
-            /*временно вытаскиваем выражение из env по ключу func_expression.arg_id, если оно есть
-             * засовываем в env <func_expression.arg_id, arg_expression>
-             * как обычно вычисляем eval() от тела function func_expression
-             * при вычислении arg_id будет обращаться к env через fromEnv(),
-             * там уже записано arg_expression
-             * после вычисления удаляем пару из env
-             * если была какая-то до, ставим обратно*/
             throw eval_error();
         }
         return result;
@@ -564,7 +557,6 @@ void getName(int& balance, int& top, std::string& input,
 
 
 Expression<Val>* Read_and_Create() {
-    std::deque<Expression<Val> *> ParseStack;
 
     std::unordered_map<std::string, typeInHash> mapping;
 
@@ -590,19 +582,17 @@ Expression<Val>* Read_and_Create() {
                     getName(balance, top, input, current);
                     auto result_ = std::make_unique<Val>(std::stoi(current));
                     Expression<Val> *result = result_.release();
-                    ParseStack.push_back(result);
-                    break;
+                    return result;
                 }
                 case var: {
                     getName(balance, top, input, current);
                     auto result_ = std::make_unique<Var>(current);
                     Expression<Val> *result = result_.release();
-                    ParseStack.push_back(result);
-                    break;
+                    return result;
                 }
                 case add: {
                     Expression<Val> *result = new Add();
-                    ParseStack.push_back(result);
+
                     break;
                 }
                 case _if: {
@@ -634,47 +624,6 @@ Expression<Val>* Read_and_Create() {
             throw exception;
         }
     }
-
-    /* найти сложную структуру (не val/var)
-     * и считать нужные структуры выше по стеку (deque) и опустить стек*/
-    for (int i = (int) ParseStack.size() - 1; i >= 0; i--) {
-        int countDeleted = 0;
-        switch (ParseStack[i]->getType()) {
-            case add:
-                ParseStack[i]->setLeft(ParseStack[i + 1]);
-                ParseStack[i]->setRight(ParseStack[i + 2]);
-                countDeleted = 2;
-                break;
-            case _if:
-                ParseStack[i]->setLeft(ParseStack[i + 1]);
-                ParseStack[i]->setRight(ParseStack[i + 2]);
-                ParseStack[i]->setThen(ParseStack[i + 3]);
-                ParseStack[i]->setElse(ParseStack[i + 4]);
-                countDeleted = 4;
-                break;
-            case let:
-                env.insert({ParseStack[i]->getId(),
-                                     ParseStack[i + 1]});
-                ParseStack[i]->setIn(ParseStack[i + 2]);
-                countDeleted = 2;
-                break;
-            case function:
-                ParseStack[i]->setIn(ParseStack[i + 1]);
-                countDeleted = 1;
-                break;
-            case call:
-                ParseStack[i]->setLeft(ParseStack[i + 1]);
-                ParseStack[i]->setRight(ParseStack[i + 2]);
-                countDeleted = 2;
-                break;
-        }
-        if (countDeleted >= 1) {
-            ParseStack.erase(ParseStack.cbegin() + i + 1,
-                             ParseStack.cbegin() + i + countDeleted + 1);
-        }
-    }
-
-    return ParseStack.front();
 }
 
 int main() {

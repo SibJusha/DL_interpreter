@@ -528,7 +528,7 @@ public:
  */
 
 void getName(int& balance, int& top, std::string& input,
-             std::string& current, std::fstream& in)
+             std::string& current)
 {
 
     current.clear();
@@ -536,7 +536,7 @@ void getName(int& balance, int& top, std::string& input,
         return;
     }
     if (top >= input.length()) {
-       if(!std::getline(in, input)) {
+       if(!std::getline(std::cin, input)) {
            return;
        }
        top = 0;
@@ -558,14 +558,12 @@ void getName(int& balance, int& top, std::string& input,
     top++;
 
     if (current.empty() && !input.empty()) {
-        getName(balance, top, input, current, in);
+        getName(balance, top, input, current);
     }
 }
 
 
 Expression<Val>* Read_and_Create() {
-    std::fstream in;
-    in.open("input.txt");
     std::deque<Expression<Val> *> ParseStack;
 
     std::unordered_map<std::string, typeInHash> mapping;
@@ -582,21 +580,21 @@ Expression<Val>* Read_and_Create() {
     std::string current, input;
     int top = 0;
     int balance = 0;
-    getName(balance, top, input, current, in);
+    getName(balance, top, input, current);
     for (; !input.empty() && balance != 0;
-           getName(balance, top, input, current, in)) {
+           getName(balance, top, input, current)) {
         try {
             auto cur = mapping.at(current);
             switch (cur) {
                 case val: {
-                    getName(balance, top, input, current, in);
+                    getName(balance, top, input, current);
                     auto result_ = std::make_unique<Val>(std::stoi(current));
                     Expression<Val> *result = result_.release();
                     ParseStack.push_back(result);
                     break;
                 }
                 case var: {
-                    getName(balance, top, input, current, in);
+                    getName(balance, top, input, current);
                     auto result_ = std::make_unique<Var>(current);
                     Expression<Val> *result = result_.release();
                     ParseStack.push_back(result);
@@ -613,13 +611,13 @@ Expression<Val>* Read_and_Create() {
                     break;
                 }
                 case let: {
-                    getName(balance, top, input, current, in);
+                    getName(balance, top, input, current);
                     Expression<Val> *result = new Let(current);
                     ParseStack.push_back(result);
                     break;
                 }
                 case function: {
-                    getName(balance, top, input, current, in);
+                    getName(balance, top, input, current);
                     Expression<Val> *result = new Function(current);
                     ParseStack.push_back(result);
                     break;

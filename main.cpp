@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <utility>
 #include <memory>
+#include <deque>
 
 class eval_error : std::exception {};
 class getValue_error : std::exception {};
@@ -192,8 +193,13 @@ public:
 };
 
 class Let : public  Expression {
+    std::string id;
     Expression* in;
 public:
+
+    explicit Let (std::string id) :
+        id(id),
+
 
     explicit Let (Expression* in) :
         Expression(let),
@@ -301,57 +307,116 @@ void getName(std::string& current) {
 
 }
 
-Expression* Read_and_Create(std::string& current)
-{
+Expression* Read_and_Create() {
+    std::deque<Expression*> ParseStack;
+
+    std::unordered_map<std::string, typeInHash> mapping;
+
+    mapping["val"] = val;
+    mapping["var"] = var;
+    mapping["add"] = add;
+    mapping["if"] = _if;
+    mapping["let"] = let;
+    mapping["function"] = function;
+    mapping["call"] = call;
+
+
+    std::string current, input;
+    //int balance = 0;
     getName(current);
-    try {
-        if (current == "val") {
-            getName(current);
-            return std::make_unique<Val>(std::stoi(current)).release();
+    for (; !input.empty(); getName(current)) {
+        try {
+            auto cur = mapping.at(current);
+            switch (cur) {
+                case val: {
+                    getName(current);
+                    auto result_ = std::make_unique<Val>(std::stoi(current));
+                    Expression*result = result_.release();
+                    ParseStack.push_back(result);
+                    break;
+                }
+                case var: {
+                    getName(current);
+                    auto result_ = std::make_unique<Var>(current);
+                    Expression*result = result_.release();
+                    ParseStack.push_back(result);
+                    break;
+                }
+                case add: {
+                    Expression*result = new Add();
+                    ParseStack.push_back(result);
+                    break;
+                }
+                case _if: {
+                    Expression* result = new If();
+                    ParseStack.push_back(result);
+                    break;
+                }
+                case let: {
+                    getName(current);
+                    Let* result = new Let(current);
+                    ParseStack.push_back(result);
+                    break;
+                }
+                case function: {
+                    getName(current);
+                    Expression* result = new Function(current);
+                    ParseStack.push_back(result);
+                    break;
+                }
+                case call: {
+                    Expression* result = new Call();
+                    ParseStack.push_back(result);
+                    break;
+                }
+            }
+        } catch (const std::out_of_range&) {
+            continue;
+        } catch (const std::exception &exception) {
+            throw exception;
         }
-        if (current == "var") {
-            getName(current);
-            return std::make_unique<Var>(current).release();
-        }
-        if (current == "add") {
-            Add *result = new Add(Read_and_Create(current),
-                                  Read_and_Create(current));
-            return result;
-        }
-        if (current == "if") {
-            If *result = new If(Read_and_Create(current),
-                                Read_and_Create(current),
-                                Read_and_Create(current),
-                                Read_and_Create(current));
-            return result;
-        }
-        if (current == "let") {
-            Let *result = new Let();
-            getName(current);
-            std::string added = current;
-            env.insert({added, Read_and_Create(current)});
-            result->setIn(Read_and_Create(current));
-            return result;
-        }
-        if (current == "function") {
-            getName(current);
-            auto *result = std::make_unique<Function>(current,
-                          Read_and_Create(current)).release();
-            return result;
-        }
-        if (current == "call") {
-            Call *result = new Call(Read_and_Create(current),
-                                    Read_and_Create(current));
-            return result;
-        }
-        if (current == "else" || current == "then" || current == "=" ||
-            current == "in") {
-            return Read_and_Create(current);
-        }
-    } catch (const std::out_of_range &) {}
-    catch (const std::exception &exception) {
-        throw exception;
     }
+
+    /* найти сложную структуру (не val/var)
+     * и считать нужные структуры выше по стеку (deque) и опустить стек*/
+    for (int i = (int) ParseStack.size() - 1; i >= 0; i--) {
+        int countDeleted = 0;
+        switch (ParseStack[i]->getType()) {
+            case add:
+                ParseStack[i]->setLeft(ParseStack[i + 1]);
+                ParseStack[i]->setRight(ParseStack[i + 2]);
+                countDeleted = 2;
+                break;
+            case _if:
+                ParseStack[i]->setLeft(ParseStack[i + 1]);
+                ParseStack[i]->setRight(ParseStack[i + 2]);
+                ParseStack[i]->setThen(ParseStack[i + 3]);
+                ParseStack[i]->setElse(ParseStack[i + 4]);
+                countDeleted = 4;
+                break;
+            case let:
+                env.insert({ParseStack[i]->getId(),
+                            ParseStack[i + 1]});
+                ParseStack[i]->setIn(ParseStack[i + 2]);
+                countDeleted = 2;
+                break;
+            case function:
+                ParseStack[i]->setIn(ParseStack[i + 1]);
+                countDeleted = 1;
+                break;
+            case call:
+                ParseStack[i]->setLeft(ParseStack[i + 1]);
+                ParseStack[i]->setRight(ParseStack[i + 2]);
+                countDeleted = 2;
+                break;
+        }
+        if (countDeleted >= 1) {
+            ParseStack.erase(ParseStack.cbegin() + i + 1,
+                             ParseStack.cbegin() + i + countDeleted + 1);
+        }
+    }
+
+    return ParseStack.front();
 }
 
 class Evaluation {

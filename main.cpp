@@ -4,7 +4,7 @@
 #include <functional>
 #include <stdexcept>
 #include <string>
-#include <stack>
+#include <algorithm>
 #include <utility>
 #include <memory>
 
@@ -290,81 +290,63 @@ public:
 
 };
 
-void getName(int& top, std::string& input, std::string& current) {
+void getName(std::string& current) {
+    std::cin >> current;
 
-    current.clear();
+    current.erase (std::remove_if (current.begin (), current.end (), [](char c)
+               {
+                   return c == '(' || c == ')';
+               }),
+               current.end ());
 
-    if (top >= input.length()) {
-       if(!std::getline(std::cin, input)) {
-           return;
-       }
-       top = 0;
-    }
-
-    for (; top < input.length(); top++) {
-        char ch = input[top];
-        if (!current.empty() && ch == ' ') {
-            break;
-        }
-        if (!(ch == '(' || ch == ' ' || ch == ')')) {
-            current += ch;
-        }
-    }
-    top++;
-
-    if (current.empty() && !input.empty()) {
-        getName(top, input, current);
-    }
 }
 
-Expression* Read_and_Create(int& top, std::string& input, std::string& current)
+Expression* Read_and_Create(std::string& current)
 {
-    getName(top, input, current);
+    getName(current);
     try {
         if (current == "val") {
-            getName(top, input, current);
+            getName(current);
             return std::make_unique<Val>(std::stoi(current)).release();
         }
         if (current == "var") {
-            getName(top, input, current);
+            getName(current);
             return std::make_unique<Var>(current).release();
         }
         if (current == "add") {
-            Add *result = new Add(Read_and_Create(top, input, current),
-                                  Read_and_Create(top, input, current));
+            Add *result = new Add(Read_and_Create(current),
+                                  Read_and_Create(current));
             return result;
         }
         if (current == "if") {
-            If *result = new If(Read_and_Create(top, input, current),
-                                Read_and_Create(top, input, current),
-                                Read_and_Create(top, input, current),
-                                Read_and_Create(top, input, current));
+            If *result = new If(Read_and_Create(current),
+                                Read_and_Create(current),
+                                Read_and_Create(current),
+                                Read_and_Create(current));
             return result;
         }
         if (current == "let") {
             Let *result = new Let();
-            getName(top, input, current);
+            getName(current);
             std::string added = current;
-            env.insert({added,
-                        Read_and_Create(top, input, current)});
-            result->setIn(Read_and_Create(top, input, current));
+            env.insert({added, Read_and_Create(current)});
+            result->setIn(Read_and_Create(current));
             return result;
         }
         if (current == "function") {
-            getName(top, input, current);
+            getName(current);
             auto *result = std::make_unique<Function>(current,
-                          Read_and_Create(top, input, current)).release();
+                          Read_and_Create(current)).release();
             return result;
         }
         if (current == "call") {
-            Call *result = new Call();
-            result->setLeft(Read_and_Create(top, input, current));
-            result->setRight(Read_and_Create(top, input, current));
+            Call *result = new Call(Read_and_Create(current),
+                                    Read_and_Create(current));
             return result;
         }
         if (current == "else" || current == "then" || current == "=" ||
             current == "in") {
-            return Read_and_Create(top, input, current);
+            return Read_and_Create(current);
         }
     } catch (const std::out_of_range &) {}
     catch (const std::exception &exception) {
@@ -460,7 +442,7 @@ int main() {
     try {
         int top = 0; std::string input, current;
         Evaluation eval;
-        eval.eval(Read_and_Create(top, input, current)).Print();
+        eval.eval(Read_and_Create(current)).Print();
     } catch (...) {
         std::cout << "ERROR";
     }

@@ -231,9 +231,9 @@ class Function : public  Expression {
     Expression* funcBody;
 public:
 
-    Function(std::string& id, Expression* func_expr) :
+    Function(std::string id, Expression* func_expr) :
             Expression(function),
-            arg_id(id),
+            arg_id(std::move(id)),
             funcBody(func_expr)
     {}
 
@@ -342,24 +342,23 @@ Expression* Read_and_Create(int& top, std::string& input, std::string& current)
             return result;
         }
         if (current == "let") {
-            Let *result = new Let();
             getName(top, input, current);
             std::string added = current;
             env.insert({added,
                         Read_and_Create(top, input, current)});
-            result->setIn(Read_and_Create(top, input, current));
+            Let *result = new Let(Read_and_Create(top, input, current));
             return result;
         }
         if (current == "function") {
             getName(top, input, current);
-            auto *result = std::make_unique<Function>(current,
+            auto str = current;
+            auto *result = std::make_unique<Function>(str,
                           Read_and_Create(top, input, current)).release();
             return result;
         }
         if (current == "call") {
-            Call *result = new Call();
-            result->setLeft(Read_and_Create(top, input, current));
-            result->setRight(Read_and_Create(top, input, current));
+            Call *result = new Call(Read_and_Create(top, input, current),
+                                    Read_and_Create(top, input, current));
             return result;
         }
         if (current == "else" || current == "then" || current == "=" ||
@@ -374,57 +373,68 @@ Expression* Read_and_Create(int& top, std::string& input, std::string& current)
 
 class Evaluation {
 
-    static Val eval(Val* expr) {
-        return Val(expr->getValue());
+    static Expression* eval(Val* expr) {
+        return new Val(expr->getValue());
     }
 
-    Val eval(Var* expr) {
-        return Val(eval(fromEnv(expr->getId())).getValue());
+    Expression* eval(Var* expr) {
+        return eval(fromEnv(expr->getId()));
     }
 
-    Val eval(Add* expr) {
-        return Val(eval(expr->getLeft()).getValue() +
-                   eval(expr->getRight()).getValue());
+    Expression* eval(Add* expr) {
+        return new Val(eval(expr->getLeft())->getValue() +
+                   eval(expr->getRight())->getValue());
     }
 
-    Val eval(If* expr) {
-        if (eval(expr->getLeft()).getValue() >
-            eval(expr->getRight()).getValue())
+    Expression* eval(If* expr) {
+        if (eval(expr->getLeft())->getValue() >
+            eval(expr->getRight())->getValue())
         {
             return eval(expr->getThen());
         }
         return eval(expr->getElse());
     }
 
-    Val eval(Let* expr) {
+    Expression* eval(Let* expr) {
         return eval(expr->getIn());
     }
 
-    Val eval(Function* expr) {
+    Expression* eval(Function* expr) {
         return eval(expr->getBody());
     }
 
-    Val eval(Call* expr) {
+    Expression* eval(Call* expr) {
         if (expr->getFunc()->getType() == function) {
             auto temp = eval(expr->getArg());
-            env.insert({expr->getFunc()->getId(),
-                        (Expression*) &temp});
+            Expression* tempEnv = nullptr;
+            if (env.find(expr->getFunc()->getId()) != env.end()) {
+                tempEnv = env.extract(expr->getFunc()->getId()).mapped();
+            }
+            env.insert({expr->getFunc()->getId(), temp});
             auto result = eval((Function*) expr->getFunc());
             env.erase(expr->getFunc()->getId());
+            if (tempEnv != nullptr) {
+                env.insert({expr->getFunc()->getId(), tempEnv});
+            }
             return result;
         } else if (expr->getFunc()->getType() == var) {
             auto envFunc = env.at(expr->getFunc()->getId());
             if (envFunc->getType() == function) {
                 auto temp = eval(expr->getArg());
-                env.insert({envFunc->getId(), (Expression*) &temp});
+                Expression* tempEnv = nullptr;
+                if (env.find(envFunc->getId()) != env.end()) {
+                    tempEnv = env.extract(envFunc->getId()).mapped();
+                }
+                env.insert({envFunc->getId(), temp});
                 auto result = eval((Function*) envFunc);
                 env.erase(envFunc->getId());
+                if (tempEnv != nullptr) {
+                    env.insert({envFunc->getId(), tempEnv});
+                }
                 return result;
             }
-            throw eval_error();
-        } else {
-            throw eval_error();
         }
+        throw eval_error();
     }
 
 public:
@@ -432,7 +442,7 @@ public:
     Evaluation() = default;
     ~Evaluation() = default;
 
-    Val eval(Expression *expr) {
+    Expression* eval(Expression *expr) {
         try {
             switch (expr->getType()) {
                 case val:
@@ -459,8 +469,12 @@ public:
 int main() {
     try {
         int top = 0; std::string input, current;
-        Evaluation eval;
-        eval.eval(Read_and_Create(top, input, current)).Print();
+        auto Expr = Read_and_Create(top, input, current);
+        Evaluation Eval;
+        auto temp = Eval.eval(Expr);
+        std::cout << "(val " << temp->getValue() << ")" << std::endl;
+        delete Expr;
+        delete temp;
     } catch (...) {
         std::cout << "ERROR";
     }

@@ -8,32 +8,16 @@
 #include <utility>
 #include <memory>
 
-class eval_error : std::exception {
-public:
-    const char* what() noexcept {
-        return "Evaluation's got errors";
-    }
-};
+class eval_error : std::exception {};
 
-class getValue_error : std::exception {
-public:
-    const char* what() noexcept {
-        return "getValue() was called not from class Val";
-    }
-};
+class getValue_error : std::exception {};
 
-class parse_error : std::exception {
-public:
-    static const char* error() noexcept {
-        return "parse error";
-    }
-};
+class parse_error : std::exception {};
 
 enum typeInHash {val = 1, var = 2, add = 3,
         _if = 4, let = 5,
     function = 6, call = 7};
 
-template <typename Returnable>
 class Expression {
     const typeInHash type;
 public:
@@ -42,7 +26,7 @@ public:
         type(type)
     {}
 
-    virtual Returnable eval() = 0;
+    virtual Expression* eval() = 0;
 
     virtual int getValue() const = 0;
 
@@ -50,15 +34,15 @@ public:
 
     virtual std::string getId () const = 0;
 
-    virtual void setLeft (Expression<Returnable>*) = 0;
+    virtual void setLeft (Expression*) = 0;
 
-    virtual void setRight (Expression<Returnable>*) = 0;
+    virtual void setRight (Expression*) = 0;
 
-    virtual void setThen (Expression<Returnable>*) = 0;
+    virtual void setThen (Expression*) = 0;
 
-    virtual void setElse (Expression<Returnable>*) = 0;
+    virtual void setElse (Expression*) = 0;
 
-    virtual void setIn (Expression<Returnable>*) = 0;
+    virtual void setIn (Expression*) = 0;
 
     typeInHash getType () {
         return type;
@@ -66,7 +50,7 @@ public:
 
 };
 
-class Val : public Expression<Val> {
+class Val : public Expression {
     int integer;
 public:
     explicit Val(int n) :
@@ -76,8 +60,8 @@ public:
 
     Val() : Val(0) {}
 
-    Val eval() override {
-        return *this;
+    Expression* eval() override {
+        return new Val(integer);
     }
 
     Val& operator= (int n) {
@@ -98,29 +82,29 @@ public:
         throw parse_error();
     }
 
-    void setLeft (Expression<Val>*) override {
+    void setLeft (Expression*) override {
         throw parse_error();
     }
 
-    void setRight (Expression<Val>*) override {
+    void setRight (Expression*) override {
         throw parse_error();
     }
 
-    void setThen (Expression<Val>*) override {
+    void setThen (Expression*) override {
         throw parse_error();
     }
 
-    void setElse (Expression<Val>*) override {
+    void setElse (Expression*) override {
         throw parse_error();
     }
 
-    void setIn (Expression<Val>*) override {
+    void setIn (Expression*) override {
         throw parse_error();
     }
 
 };
 
-class Var : public Expression<Val> {
+class Var : public Expression {
     std::string id;
 public:
 
@@ -129,7 +113,7 @@ public:
         id(std::move(id))
     {}
 
-    Val eval() override;
+    Expression* eval() override;
 
     bool operator==(const Var& that) {
         return id == that.id;
@@ -143,56 +127,50 @@ public:
         throw getValue_error();
     }
 
-    void setLeft (Expression<Val>*) override {
+    void setLeft (Expression*) override {
         throw parse_error();
     }
 
-    void setRight (Expression<Val>*) override {
+    void setRight (Expression*) override {
         throw parse_error();
     }
 
-    void setThen (Expression<Val>*) override {
+    void setThen (Expression*) override {
         throw parse_error();
     }
 
-    void setElse (Expression<Val>*) override {
+    void setElse (Expression*) override {
         throw parse_error();
     }
 
-    void setIn (Expression<Val>*) override {
+    void setIn (Expression*) override {
         throw parse_error();
     }
 
 };
 
-std::unordered_map<std::string, Expression<Val>*> env;
+std::unordered_map<std::string, Expression*> env;
 
-Expression<Val>* fromEnv(const std::string& V) {
+Expression* fromEnv(const std::string& V) {
     try {
-        Expression<Val>* found = env.at(V);
+        Expression* found = env.at(V);
         return found;
     } catch (const std::out_of_range &exception) {
         throw exception;
     }
 }
 
-Val Var::eval() {
-    Val found;
-    try {
-        found = fromEnv(id)->eval();
-    } catch (const std::exception& exception) {
-        throw exception;
-    }
-    return found;
+Expression* Var::eval() {
+    return fromEnv(id)->eval();
 }
 
-class Add : public Expression<Val> {
-    Expression<Val>* left;
-    Expression<Val>* right;
+class Add : public Expression {
+    Expression* left;
+    Expression* right;
 public:
 
-    Add(Expression<Val>* left,
-            Expression<Val>* right) :
+    Add(Expression* left,
+            Expression* right) :
         Expression(add),
         left(left),
         right(right)
@@ -205,15 +183,17 @@ public:
         delete right;
     }
 
-    Val eval() override {
-        Val result;
+    Expression* eval() override {
         try {
-            result = Val(left->eval().getValue() +
-                    right->eval().getValue());
+            auto Left = left->eval();
+            auto Right = right->eval();
+            auto result = new Val(Left->getValue() + Right->getValue());
+            delete Left;
+            delete Right;
+            return result;
         } catch (const std::exception& exception) {
             throw exception;
         }
-        return result;
     }
 
     int getValue() const override {
@@ -224,37 +204,37 @@ public:
         throw parse_error();
     }
 
-    void setLeft(Expression<Val>* left_) override {
+    void setLeft(Expression* left_) override {
         left = left_;
     }
 
-    void setRight(Expression<Val>* right_) override {
+    void setRight(Expression* right_) override {
         right = right_;
     }
 
-    void setThen (Expression<Val>*) override {
+    void setThen (Expression*) override {
         throw parse_error();
     }
 
-    void setElse (Expression<Val>*) override {
+    void setElse (Expression*) override {
         throw parse_error();
     }
 
-    void setIn (Expression<Val>*) override {
+    void setIn (Expression*) override {
         throw parse_error();
     }
 
 };
 
-class If : public Expression<Val> {
-    Expression<Val>* if_left_;
-    Expression<Val>* if_right_;
-    Expression<Val>* then_;
-    Expression<Val>* else_;
+class If : public Expression {
+    Expression* if_left_;
+    Expression* if_right_;
+    Expression* then_;
+    Expression* else_;
 public:
 
-    If(Expression<Val>* if_left_, Expression<Val>* if_right_,
-       Expression<Val>* then_, Expression<Val>* else_) :
+    If(Expression* if_left_, Expression* if_right_,
+       Expression* then_, Expression* else_) :
         Expression(_if),
         if_left_(if_left_),
         if_right_(if_right_),
@@ -271,10 +251,10 @@ public:
         delete else_;
     }
 
-    Val eval() override {
+    Expression* eval() override {
         try {
-            if (if_left_->eval().getValue() >
-                    if_right_->eval().getValue())
+            if (if_left_->eval()->getValue() >
+                    if_right_->eval()->getValue())
             {
                 return then_->eval();
             }
@@ -292,34 +272,34 @@ public:
         throw parse_error();
     }
 
-    void setLeft (Expression<Val>* left_) override {
+    void setLeft (Expression* left_) override {
         if_left_ = left_;
     }
 
-    void setRight (Expression<Val>* right_) override {
+    void setRight (Expression* right_) override {
         if_right_ = right_;
     }
 
-    void setThen (Expression<Val>* _then) override {
+    void setThen (Expression* _then) override {
         then_ = _then;
     }
 
-    void setElse (Expression<Val>* _else) override {
+    void setElse (Expression* _else) override {
         else_ = _else;
     }
 
-    void setIn (Expression<Val>*) override {
+    void setIn (Expression*) override {
         throw parse_error();
     }
 
 };
 
-class Let : public Expression<Val> {
+class Let : public Expression {
     std::string id;
-    Expression<Val>* in;
+    Expression* in;
 public:
 
-    Let (std::string  id, Expression<Val>* in) :
+    Let (std::string  id, Expression* in) :
         Expression(let),
         id(std::move(id)),
         in(in)
@@ -333,14 +313,12 @@ public:
         delete in;
     }
 
-    Val eval() override {
-        Val result;
+    Expression* eval() override {
         try {
-            result = in->eval();
+            return in->eval();
         } catch (...) {
             throw eval_error();
         }
-        return result;
     }
 
     int getValue() const override {
@@ -351,37 +329,37 @@ public:
         return id;
     }
 
-    void setLeft (Expression<Val>*) override {
+    void setLeft (Expression*) override {
         throw parse_error();
     }
 
-    void setRight (Expression<Val>*) override {
+    void setRight (Expression*) override {
         throw parse_error();
     }
 
-    void setThen (Expression<Val>*) override {
+    void setThen (Expression*) override {
         throw parse_error();
     }
 
-    void setElse (Expression<Val>*) override {
+    void setElse (Expression*) override {
         throw parse_error();
     }
 
-    void setIn (Expression<Val>* in_) override {
+    void setIn (Expression* in_) override {
         in = in_;
     }
 
 };
 
-class Function : public Expression<Val> {
+class Function : public Expression {
     std::string arg_id;
-    Expression<Val>* func_expr;
+    Expression* body;
 public:
 
     Function(std::string  id, Expression* func_expr) :
         Expression(function),
         arg_id(std::move(id)),
-        func_expr(func_expr)
+        body(func_expr)
     {}
 
     explicit Function(std::string id) :
@@ -389,17 +367,15 @@ public:
     {}
 
     ~Function() override {
-        delete func_expr;
+        delete body;
     }
 
-    Val eval() override {
-        Val result;
+    Expression* eval() override {
         try {
-            result = func_expr->eval();
+            return body->eval();
         } catch (...) {
             throw eval_error();
         }
-        return result;
     }
 
     int getValue() const override {
@@ -410,34 +386,34 @@ public:
         return arg_id;
     }
 
-    void setLeft (Expression<Val>*) override {
+    void setLeft (Expression*) override {
         throw parse_error();
     }
 
-    void setRight (Expression<Val>*) override {
+    void setRight (Expression*) override {
         throw parse_error();
     }
 
-    void setThen (Expression<Val>*) override {
+    void setThen (Expression*) override {
         throw parse_error();
     }
 
-    void setElse (Expression<Val>*) override {
+    void setElse (Expression*) override {
         throw parse_error();
     }
 
-    void setIn (Expression<Val>* in_) override {
-        func_expr = in_;
+    void setIn (Expression* in_) override {
+        body = in_;
     }
 
 };
 
-class Call : public Expression<Val> {
-    Expression<Val>* func_expression;
-    Expression<Val>* arg_expression;
+class Call : public Expression {
+    Expression* func_expression;
+    Expression* arg_expression;
 public:
 
-    Call (Expression<Val>* func, Expression<Val>* expr) :
+    Call (Expression* func, Expression* expr) :
         Expression(call),
         func_expression(func),
         arg_expression(expr)
@@ -449,7 +425,7 @@ public:
         delete arg_expression;
     }
 
-    Val eval() override {
+    Expression* eval() override {
         try {
             if (func_expression->getType() == var) {
                 auto envFunc = env.at(func_expression->getId());
@@ -461,12 +437,13 @@ public:
                         tempEnv = env.at(FUNCTION_ID);
                         env.erase(FUNCTION_ID);
                     }
-                    env.insert({FUNCTION_ID, &temp});
+                    env.insert({FUNCTION_ID, temp});
                     auto result = envFunc->eval();
                     env.erase(FUNCTION_ID);
                     if (tempEnv != nullptr) {
                         env.insert({FUNCTION_ID, tempEnv});
                     }
+                    delete temp;
                     return result;
                 }
                 throw eval_error();
@@ -478,12 +455,13 @@ public:
                     tempEnv = env.at(FUNCTION_ID);
                     env.erase(FUNCTION_ID);
                 }
-                env.insert({FUNCTION_ID, &temp});
+                env.insert({FUNCTION_ID, temp});
                 auto result = func_expression->eval();
                 env.erase(FUNCTION_ID);
                 if (tempEnv != nullptr) {
                     env.insert({FUNCTION_ID, tempEnv});
                 }
+                delete temp;
                 return result;
             } else {
                 throw eval_error();
@@ -502,23 +480,23 @@ public:
         throw parse_error();
     }
 
-    void setLeft (Expression<Val>* func) override {
+    void setLeft (Expression* func) override {
         func_expression = func;
     }
 
-    void setRight (Expression<Val>* arg) override {
+    void setRight (Expression* arg) override {
         arg_expression = arg;
     }
 
-    void setThen (Expression<Val>*) override {
+    void setThen (Expression*) override {
         throw parse_error();
     }
 
-    void setElse (Expression<Val>*) override {
+    void setElse (Expression*) override {
         throw parse_error();
     }
 
-    void setIn (Expression<Val>* in_) override {
+    void setIn (Expression* in_) override {
         throw parse_error();
     }
 
@@ -560,8 +538,8 @@ void getName(int& balance, int& top, std::string& input,
 }
 
 
-Expression<Val>* Read_and_Create() {
-    std::deque<Expression<Val> *> ParseStack;
+Expression* Read_and_Create() {
+    std::deque<Expression*> ParseStack;
 
     std::unordered_map<std::string, typeInHash> mapping;
 
@@ -586,41 +564,41 @@ Expression<Val>* Read_and_Create() {
                 case val: {
                     getName(balance, top, input, current);
                     auto result_ = std::make_unique<Val>(std::stoi(current));
-                    Expression<Val> *result = result_.release();
+                    Expression *result = result_.release();
                     ParseStack.push_back(result);
                     break;
                 }
                 case var: {
                     getName(balance, top, input, current);
                     auto result_ = std::make_unique<Var>(current);
-                    Expression<Val> *result = result_.release();
+                    Expression *result = result_.release();
                     ParseStack.push_back(result);
                     break;
                 }
                 case add: {
-                    Expression<Val> *result = new Add();
+                    Expression *result = new Add();
                     ParseStack.push_back(result);
                     break;
                 }
                 case _if: {
-                    Expression<Val> *result = new If();
+                    Expression *result = new If();
                     ParseStack.push_back(result);
                     break;
                 }
                 case let: {
                     getName(balance, top, input, current);
-                    Expression<Val> *result = new Let(current);
+                    Expression *result = new Let(current);
                     ParseStack.push_back(result);
                     break;
                 }
                 case function: {
                     getName(balance, top, input, current);
-                    Expression<Val> *result = new Function(current);
+                    Expression *result = new Function(current);
                     ParseStack.push_back(result);
                     break;
                 }
                 case call: {
-                    Expression<Val> *result = new Call();
+                    Expression *result = new Call();
                     ParseStack.push_back(result);
                     break;
                 }
@@ -674,8 +652,11 @@ Expression<Val>* Read_and_Create() {
 
 int main() {
     try {
-        int result = Read_and_Create()->eval().getValue();
-        std::cout << "(val " << result << ")" << std::endl;
+        auto Expr = Read_and_Create();
+        auto Eval = Expr->eval();
+        std::cout << "(val " << Eval->getValue() << ")" << std::endl;
+        delete Expr;
+        delete Eval;
     } catch (...) {
         std::cout << "ERROR";
     }

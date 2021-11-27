@@ -451,31 +451,48 @@ public:
     }
 
     Val eval() override {
-        Val result;
         try {
             if (func_expression->getType() == var) {
-                auto temp = env.at(func_expression->getId());
-                env.insert({temp->getId(), arg_expression});
-                result = temp->eval();
-                env.erase(temp->getId());
+                auto envFunc = env.at(func_expression->getId());
+                if (envFunc->getType() == function) {
+                    auto temp = arg_expression->eval();
+                    Expression* tempEnv = nullptr;
+                    auto FUNCTION_ID = envFunc->getId();
+                    if (env.find(FUNCTION_ID) != env.end()) {
+                        tempEnv = env.at(FUNCTION_ID);
+                        env.erase(FUNCTION_ID);
+                    }
+                    env.insert({FUNCTION_ID, &temp});
+                    auto result = envFunc->eval();
+                    env.erase(FUNCTION_ID);
+                    if (tempEnv != nullptr) {
+                        env.insert({FUNCTION_ID, tempEnv});
+                    }
+                    return result;
+                }
+                throw eval_error();
             } else if (func_expression->getType() == function) {
-                env.insert({func_expression->getId(), arg_expression});
-                result = func_expression->eval();
-                env.erase(func_expression->getId());
+                auto temp = arg_expression->eval();
+                Expression* tempEnv = nullptr;
+                auto FUNCTION_ID = func_expression->getId();
+                if (env.find(FUNCTION_ID) != env.end()) {
+                    tempEnv = env.at(FUNCTION_ID);
+                    env.erase(FUNCTION_ID);
+                }
+                env.insert({FUNCTION_ID, &temp});
+                auto result = func_expression->eval();
+                env.erase(FUNCTION_ID);
+                if (tempEnv != nullptr) {
+                    env.insert({FUNCTION_ID, tempEnv});
+                }
+                return result;
             } else {
                 throw eval_error();
             }
         } catch (...) {
-            /*временно вытаскиваем выражение из env по ключу func_expression.arg_id, если оно есть
-             * засовываем в env <func_expression.arg_id, arg_expression>
-             * как обычно вычисляем eval() от тела function func_expression
-             * при вычислении arg_id будет обращаться к env через fromEnv(),
-             * там уже записано arg_expression
-             * после вычисления удаляем пару из env
-             * если была какая-то до, ставим обратно*/
+
             throw eval_error();
         }
-        return result;
     }
 
     int getValue() const override {
@@ -507,25 +524,6 @@ public:
     }
 
 };
-
-/*
- * (add (val 3) (
- * val 2))
- *  (add (add (val 3) (val 1)) (val 2)))
- * add val 3 val 2
- *
- * let A = val 20 in
- * let B = val 30 in
- * if var A add var B val 3
- * then val 10
- * else add var B val 1
- *
- * (let A = (val 20) in
- * (let B = (val 30) in
- * (if (var A) (add (var B) (val 3))
- * then (val 10)
- * else (add (var B) (val 1)))))
- */
 
 void getName(int& balance, int& top, std::string& input,
              std::string& current)
@@ -635,8 +633,6 @@ Expression<Val>* Read_and_Create() {
         }
     }
 
-    /* найти сложную структуру (не val/var)
-     * и считать нужные структуры выше по стеку (deque) и опустить стек*/
     for (int i = (int) ParseStack.size() - 1; i >= 0; i--) {
         int countDeleted = 0;
         switch (ParseStack[i]->getType()) {

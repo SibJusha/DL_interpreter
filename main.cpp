@@ -1,6 +1,5 @@
 #include <iostream>
 #include <iomanip>
-#include <fstream>
 #include <unordered_map>
 #include <functional>
 #include <stdexcept>
@@ -11,14 +10,14 @@
 
 class eval_error : std::exception {
 public:
-      static const char* error() noexcept {
+    const char* what() noexcept {
         return "Evaluation's got errors";
     }
 };
 
 class getValue_error : std::exception {
 public:
-    static const char* error() noexcept {
+    const char* what() noexcept {
         return "getValue() was called not from class Val";
     }
 };

@@ -317,53 +317,76 @@ void getName(int& top, std::string& input, std::string& current) {
     }
 }
 
+class Mapping {
+    std::unordered_map<std::string, typeInHash> mapping;
+public:
+
+    Mapping() {
+        mapping["val"] = val;
+        mapping["var"] = var;
+        mapping["add"] = add;
+        mapping["if"] = _if;
+        mapping["let"] = let;
+        mapping["function"] = function;
+        mapping["call"] = call;
+    }
+    ~Mapping() = default;
+
+    typeInHash getFromMap (const std::string& str) {
+        return mapping.at(str);
+    }
+
+};
+Mapping map;
+
 Expression* Read_and_Create(int& top, std::string& input, std::string& current)
 {
     getName(top, input, current);
     try {
-        if (current == "val") {
-            getName(top, input, current);
-            return std::make_unique<Val>(std::stoi(current)).release();
-        }
-        if (current == "var") {
-            getName(top, input, current);
-            return std::make_unique<Var>(current).release();
-        }
-        if (current == "add") {
-            Add *result = new Add(Read_and_Create(top, input, current),
-                                  Read_and_Create(top, input, current));
-            return result;
-        }
-        if (current == "if") {
-            If *result = new If(Read_and_Create(top, input, current),
-                                Read_and_Create(top, input, current),
-                                Read_and_Create(top, input, current),
-                                Read_and_Create(top, input, current));
-            return result;
-        }
-        if (current == "let") {
-            getName(top, input, current);
-            std::string added = current;
-            env.insert({added,
-                        Read_and_Create(top, input, current)});
-            Let *result = new Let(Read_and_Create(top, input, current));
-            return result;
-        }
-        if (current == "function") {
-            getName(top, input, current);
-            auto str = current;
-            auto *result = std::make_unique<Function>(str,
-                          Read_and_Create(top, input, current)).release();
-            return result;
-        }
-        if (current == "call") {
-            Call *result = new Call(Read_and_Create(top, input, current),
+        auto cur = map.getFromMap(current);
+        switch (cur) {
+            case val: {
+                getName(top, input, current);
+                return std::make_unique<Val>(std::stoi(current)).release();
+            }
+            case var: {
+                getName(top, input, current);
+                return std::make_unique<Var>(current).release();
+            }
+            case add: {
+                Add *result = new Add(Read_and_Create(top, input, current),
+                                      Read_and_Create(top, input, current));
+                return result;
+            }
+            case _if: {
+                If *result = new If(Read_and_Create(top, input, current),
+                                    Read_and_Create(top, input, current),
+                                    Read_and_Create(top, input, current),
                                     Read_and_Create(top, input, current));
-            return result;
-        }
-        if (current == "else" || current == "then" || current == "=" ||
-            current == "in") {
-            return Read_and_Create(top, input, current);
+                return result;
+            }
+            case let: {
+                getName(top, input, current);
+                std::string added = current;
+                env.insert({added,
+                            Read_and_Create(top, input, current)});
+                Let *result = new Let(Read_and_Create(top, input, current));
+                return result;
+            }
+            case function: {
+                getName(top, input, current);
+                auto str = current;
+                auto *result = std::make_unique<Function>(str,
+                                                          Read_and_Create(top, input, current)).release();
+                return result;
+            }
+            case call: {
+                Call *result = new Call(Read_and_Create(top, input, current),
+                                        Read_and_Create(top, input, current));
+                return result;
+            }
+            default:
+                Read_and_Create(top, input, current);
         }
     } catch (const std::out_of_range &) {}
     catch (const std::exception &exception) {
@@ -407,14 +430,16 @@ class Evaluation {
         if (expr->getFunc()->getType() == function) {
             auto temp = eval(expr->getArg());
             Expression* tempEnv = nullptr;
-            if (env.find(expr->getFunc()->getId()) != env.end()) {
-                tempEnv = env.extract(expr->getFunc()->getId()).mapped();
+            auto FuncId = expr->getFunc()->getId();
+            if (env.find(FuncId) != env.end()) {
+                tempEnv = env.at(FuncId);
+                env.erase(FuncId);
             }
-            env.insert({expr->getFunc()->getId(), temp});
+            env.insert({FuncId, temp});
             auto result = eval((Function*) expr->getFunc());
-            env.erase(expr->getFunc()->getId());
+            env.erase(FuncId);
             if (tempEnv != nullptr) {
-                env.insert({expr->getFunc()->getId(), tempEnv});
+                env.insert({FuncId, tempEnv});
             }
             return result;
         } else if (expr->getFunc()->getType() == var) {
@@ -422,14 +447,16 @@ class Evaluation {
             if (envFunc->getType() == function) {
                 auto temp = eval(expr->getArg());
                 Expression* tempEnv = nullptr;
-                if (env.find(envFunc->getId()) != env.end()) {
-                    tempEnv = env.extract(envFunc->getId()).mapped();
+                auto FuncId = envFunc->getId();
+                if (env.find(FuncId) != env.end()) {
+                    tempEnv = env.at(FuncId);
+                    env.erase(FuncId);
                 }
-                env.insert({envFunc->getId(), temp});
+                env.insert({FuncId, temp});
                 auto result = eval((Function*) envFunc);
-                env.erase(envFunc->getId());
+                env.erase(FuncId);
                 if (tempEnv != nullptr) {
-                    env.insert({envFunc->getId(), tempEnv});
+                    env.insert({FuncId, tempEnv});
                 }
                 return result;
             }
@@ -468,7 +495,9 @@ public:
 
 int main() {
     try {
-        int top = 0; std::string input, current;
+        Mapping map;
+        int top = 0;
+        std::string input, current;
         auto Expr = Read_and_Create(top, input, current);
         Evaluation Eval;
         auto temp = Eval.eval(Expr);

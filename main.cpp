@@ -14,7 +14,7 @@ class parse_error : std::exception {};
 
 enum typeInHash {val = 1, var = 2, add = 3,
         _if = 4, let = 5,
-    function = 6, call = 7};
+    function = 6, call = 7, set = 8, block = 9};
 
 class Expression {
     const typeInHash type;
@@ -23,6 +23,10 @@ public:
     explicit Expression (typeInHash type) :
         type(type)
     {}
+
+    virtual Expression* Clone() = 0;
+
+    virtual Expression* eval() = 0;
 
     virtual int getValue() const = 0;
 
@@ -34,7 +38,19 @@ public:
         return type;
     }
 
+    virtual std::string to_string() const = 0;
 };
+
+std::unordered_map<std::string, Expression*> env;
+
+Expression* fromEnv(const std::string& V) {
+    try {
+        Expression* found = env.at(V);
+        return found;
+    } catch (const std::out_of_range &exception) {
+        throw exception;
+    }
+}
 
 class Val : public Expression {
     int integer;
@@ -46,6 +62,12 @@ public:
 
     Val() : Val(0) {}
 
+    ~Val() override = default;
+
+    Expression* Clone() override {
+        return new Val(integer);
+    }
+
     Val& operator= (int n) {
         *this = Val(n);
         return *this;
@@ -56,6 +78,10 @@ public:
         return *this;
     }
 
+    Expression* eval() override {
+        return new Val(integer);
+    }
+
     int getValue() const override {
         return integer;
     }
@@ -64,8 +90,8 @@ public:
         throw parse_error();
     }
 
-    void Print() const {
-        std::cout << "(val " << integer << ")";
+    std::string to_string() const override {
+        return "(val " + std::to_string(integer) + ")";
     }
 
 };
@@ -79,6 +105,16 @@ public:
         id(std::move(id))
     {}
 
+    ~Var() override = default;
+
+    Expression* Clone() override {
+        return new Var(id);
+    }
+
+    Expression* eval() override {
+        return fromEnv(id)->eval()->Clone();
+    }
+
     bool operator==(const Var& that) {
         return id == that.id;
     }
@@ -91,18 +127,11 @@ public:
         throw getValue_error();
     }
 
-};
-
-std::unordered_map<std::string, Expression*> env;
-
-Expression* fromEnv(const std::string& V) {
-    try {
-        Expression* found = env.at(V);
-        return found;
-    } catch (const std::out_of_range &exception) {
-        throw exception;
+    std::string to_string() const override {
+        return "(var " + id + ")";
     }
-}
+
+};
 
 class Add : public  Expression {
      Expression* left;
@@ -122,6 +151,19 @@ public:
         delete right;
     }
 
+    Expression* Clone() override {
+        return new Add(left->Clone(), right->Clone());
+    }
+
+    Expression* eval() override {
+        auto Left = left->eval();
+        auto Right = right->eval();
+        Expression* result = new Val(Left->getValue() + Right->getValue());
+        delete Left;
+        delete Right;
+        return result;
+    }
+
     int getValue() const override {
         throw getValue_error();
     }
@@ -130,12 +172,9 @@ public:
         throw parse_error();
     }
 
-    Expression* getLeft () {
-        return left;
-    }
-
-    Expression* getRight () {
-        return right;
+    std::string to_string() const override {
+        return "(add " + left->to_string() + " "
+        + right->to_string() + ")";
     }
 
 };
@@ -165,6 +204,25 @@ public:
         delete else_;
     }
 
+    Expression* Clone() override {
+        return new If(if_left_->Clone(), if_right_->Clone(),
+                      then_->Clone(), else_->Clone());
+    }
+
+    Expression* eval() override {
+        auto Left = if_left_->eval();
+        auto Right = if_right_->eval();
+        Expression* result = nullptr;
+        if (Left->getValue() > Right->getValue()) {
+            result = then_->eval();
+        } else {
+            result = else_->eval();
+        }
+        delete Left;
+        delete Right;
+        return result;
+    }
+
     int getValue() const override {
         throw getValue_error();
     }
@@ -173,39 +231,55 @@ public:
         throw parse_error();
     }
 
-    Expression* getLeft () {
-        return if_left_;
-    }
-
-    Expression* getRight () {
-        return if_right_;
-    }
-
-    Expression* getThen () {
-        return then_;
-    }
-
-    Expression* getElse () {
-        return else_;
+    std::string to_string() const override {
+        return "(if " + if_left_->to_string() + " " +
+                if_right_->to_string() + "\nthen " +
+                then_->to_string() + "\nelse" + else_->to_string() + ")";
     }
 
 };
 
 class Let : public  Expression {
+    std::string id;
+    Expression* id_expr;
     Expression* in;
 public:
 
-    explicit Let (Expression* in) :
+    Let (std::string id, Expression* id_expr, Expression* in) :
         Expression(let),
+        id(std::move(id)),
+        id_expr(id_expr),
         in(in)
     {}
 
-    explicit Let() :
-        Let(nullptr)
+    Let() :
+        Let("", nullptr, nullptr)
     {}
 
     ~Let() override {
+        delete id_expr;
         delete in;
+    }
+
+    Expression* Clone() override {
+        return new Let(id, id_expr->Clone(), in->Clone());
+    }
+
+    Expression* eval() override {
+        Expression* tempEnv = nullptr;
+        auto evalId = id_expr->eval();
+        if (env.find(id) != env.end()) {
+            tempEnv = env.at(id);
+            env.erase(id);
+        }
+        env.insert({id, evalId});
+        auto result = in->eval();
+        env.erase(id);
+        delete evalId;
+        if (tempEnv != nullptr) {
+            env.insert({id, tempEnv});
+        }
+        return result;
     }
 
     int getValue() const override {
@@ -216,12 +290,9 @@ public:
         throw parse_error();
     }
 
-    Expression* getIn () {
-        return in;
-    }
-
-    void setIn (Expression* _in) {
-        in = _in;
+    std::string to_string() const override {
+        return "(let " + id + " = " + id_expr->to_string() +
+                " in " + in->to_string() + ")";
     }
 
 };
@@ -241,6 +312,14 @@ public:
         delete funcBody;
     }
 
+    Expression* Clone() override {
+        return new Function(arg_id, funcBody->Clone());
+    }
+
+    Expression* eval() override {
+        return Clone();
+    }
+
     int getValue() const override {
         throw getValue_error();
     }
@@ -251,6 +330,11 @@ public:
 
     Expression* getBody () {
         return funcBody;
+    }
+
+    std::string to_string() const override {
+        return "(function " + arg_id + " " +
+                funcBody->to_string() + ")";
     }
 
 };
@@ -269,7 +353,83 @@ public:
     Call () : Call(nullptr, nullptr) {}
 
     ~Call() override {
+        delete func_expression;
         delete arg_expression;
+    }
+
+    Expression* Clone() override {
+        return new Call(func_expression->Clone(),
+                        arg_expression->Clone());
+    }
+
+    Expression* eval() override {
+        /*if (func_expression->getType() == function) {
+            auto ArgEval = arg_expression->eval();
+            Expression* tempEnv = nullptr;
+            auto FuncId = func_expression->getId();
+            if (env.find(FuncId) != env.end()) {
+                tempEnv = env.at(FuncId);
+                env.erase(FuncId);
+            }
+            env.insert({FuncId, ArgEval});
+            auto result =
+                    ((Function*)func_expression->eval())->getBody()->eval();
+            env.erase(FuncId);
+            if (tempEnv != nullptr) {
+                env.insert({FuncId, tempEnv});
+            }
+            return result;
+        } else if (func_expression->getType() == var) {
+            auto envFunc = env.at(func_expression->getId());
+            if (envFunc->getType() == function) {
+                auto ArgEval = arg_expression->eval();
+                Expression* tempEnv = nullptr;
+                auto FuncId = envFunc->getId();
+                if (env.find(FuncId) != env.end()) {
+                    tempEnv = env.at(FuncId);
+                    env.erase(FuncId);
+                }
+                env.insert({FuncId, ArgEval});
+                auto result =
+                        ((Function*) envFunc->eval())->getBody()->eval();
+                env.erase(FuncId);
+                if (tempEnv != nullptr) {
+                    env.insert({FuncId, tempEnv});
+                }
+                return result;
+            }
+        }*/
+
+        Expression* result = nullptr;
+        Function* Func = nullptr;
+        std::string FuncId;
+        if (func_expression->getType() == var) {
+            auto envFunc = env.at(func_expression->getId());
+            if (envFunc->getType() == function) {
+                FuncId = envFunc->getId();
+                Func = (Function*) envFunc->eval();
+            } else {
+                throw eval_error();
+            }
+        } else if (func_expression->getType() == function) {
+            FuncId = func_expression->getId();
+            Func = (Function*) func_expression->eval();
+        } else {
+            throw eval_error();
+        }
+        Expression* tempEnv = nullptr;
+        auto ArgEval = arg_expression->eval();
+        if (env.find(FuncId) != env.end()) {
+            tempEnv = env.at(FuncId);
+            env.erase(FuncId);
+        }
+        env.insert({FuncId, ArgEval});
+        result = Func->getBody()->eval();
+        if (tempEnv != nullptr) {
+            env.insert({FuncId, tempEnv});
+        }
+        delete Func;
+        return result;
     }
 
     int getValue() const override {
@@ -280,113 +440,165 @@ public:
         throw parse_error();
     }
 
-    Expression* getFunc () {
-        return func_expression;
-    }
-
-    Expression* getArg () {
-        return arg_expression;
+    std::string to_string() const override {
+        return "(call " + func_expression->to_string() + " " +
+                arg_expression->to_string() + ")";
     }
 
 };
 
-void getName(int& top, std::string& input, std::string& current) {
+/* WIP
+ * class Set : public Expression {
+    std::string id;
+    Expression* e_val;
+public:
 
-    current.clear();
+    Set(std::string id, Expression* expr) :
+        Expression(set),
+        id(std::move(id)),
+        e_val(expr)
+    {}
 
-    if (top >= input.length()) {
-       if(!std::getline(std::cin, input)) {
-           return;
-       }
-       top = 0;
+    std::string getId () const override {
+        return id;
     }
+
+    Expression* Clone() override {
+        return new Set(id, e_val->Clone());
+    }
+
+    Expression* eval() override {
+        Expression* temp = nullptr;
+        if (env.find(id) != env.end()) {
+            temp = env.at(id);
+            env.erase(id);
+        }
+        env.insert({id, e_val});
+        return this;
+    }
+
+    int getValue () const override {
+        throw getValue_error();
+    }
+
+    Expression* getBody () {
+        return e_val;
+    }
+
+};
+
+class Block : public Expression {
+    std::vector<Expression*> expr_array;
+public:
+
+    explicit Block(std::vector<Expression*> expr_array) :
+        Expression(block),
+        expr_array(std::move(expr_array))
+    {}
+
+    int getValue () {
+        throw getValue_error();
+    }
+
+    std::string getId () {
+        throw eval_error();
+    }
+
+    std::vector<Expression*>& getArray () {
+        return expr_array;
+    }
+
+};*/
+
+void getInput(int& top, std::string& input) {
+    if (top >= input.length()) {
+        if(!std::getline(std::cin, input)) {
+            return;
+        }
+        top = 0;
+    }
+
+    if (input.empty()) {
+        getInput(top, input);
+    }
+
+}
+
+std::string getName(int& top, std::string& input) {
+    std::string current;
+    getInput(top, input);
 
     for (; top < input.length(); top++) {
         char ch = input[top];
         if (!current.empty() && ch == ' ') {
             break;
         }
-        if (!(ch == '(' || ch == ' ' || ch == ')')) {
+        if (!(ch == '(' || ch == ' ' || ch == ')' || ch == '=')) {
             current += ch;
         }
     }
     top++;
 
     if (current.empty() && !input.empty()) {
-        getName(top, input, current);
+        current = getName(top, input);
     }
+    return current;
 }
 
-class Mapping {
-    std::unordered_map<std::string, typeInHash> mapping;
-public:
-
-    Mapping() {
-        mapping["val"] = val;
-        mapping["var"] = var;
-        mapping["add"] = add;
-        mapping["if"] = _if;
-        mapping["let"] = let;
-        mapping["function"] = function;
-        mapping["call"] = call;
-    }
-    ~Mapping() = default;
-
-    typeInHash getFromMap (const std::string& str) {
-        return mapping.at(str);
-    }
-
-};
-Mapping map;
-
-Expression* Read_and_Create(int& top, std::string& input, std::string& current)
+Expression* Read_and_Create(int& top, std::string& input)
 {
-    getName(top, input, current);
+    std::string current = getName(top, input);
     try {
-        auto cur = map.getFromMap(current);
-        switch (cur) {
-            case val: {
-                getName(top, input, current);
-                return std::make_unique<Val>(std::stoi(current)).release();
-            }
-            case var: {
-                getName(top, input, current);
-                return std::make_unique<Var>(current).release();
-            }
-            case add: {
-                Add *result = new Add(Read_and_Create(top, input, current),
-                                      Read_and_Create(top, input, current));
-                return result;
-            }
-            case _if: {
-                If *result = new If(Read_and_Create(top, input, current),
-                                    Read_and_Create(top, input, current),
-                                    Read_and_Create(top, input, current),
-                                    Read_and_Create(top, input, current));
-                return result;
-            }
-            case let: {
-                getName(top, input, current);
-                std::string added = current;
-                env.insert({added,
-                            Read_and_Create(top, input, current)});
-                Let *result = new Let(Read_and_Create(top, input, current));
-                return result;
-            }
-            case function: {
-                getName(top, input, current);
-                auto str = current;
-                auto *result = std::make_unique<Function>(str,
-                                                          Read_and_Create(top, input, current)).release();
-                return result;
-            }
-            case call: {
-                Call *result = new Call(Read_and_Create(top, input, current),
-                                        Read_and_Create(top, input, current));
-                return result;
-            }
-            default:
-                Read_and_Create(top, input, current);
+        if (current == "val") {
+            auto name = getName(top, input);
+            return std::make_unique<Val>(std::stoi(name)).release();
+        }
+        else if (current == "var") {
+            auto name = getName(top, input);
+            return std::make_unique<Var>(name).release();
+        }
+        else if (current == "add") {
+            Add *result = new Add(Read_and_Create(top, input),
+                                  Read_and_Create(top, input));
+            return result;
+        }
+        else if (current == "if") {
+            If *result = new If(Read_and_Create(top, input),
+                                Read_and_Create(top, input),
+                                Read_and_Create(top, input),
+                                Read_and_Create(top, input));
+            return result;
+        }
+        else if (current == "let") {
+            auto name = getName(top, input);
+            Let *result = new Let(name,
+                                  Read_and_Create(top, input),
+                                  Read_and_Create(top, input));
+            return result;
+        }
+        else if (current == "function") {
+            auto name = getName(top, input);
+            auto *result = std::make_unique<Function>(name,
+                                      Read_and_Create(top, input)).release();
+            return result;
+        }
+        else if (current == "call") {
+            Call *result = new Call(Read_and_Create(top, input),
+                                    Read_and_Create(top, input));
+            return result;
+        }
+        /*WIP
+         * else if (current == "set") {
+            auto name = getName(top, input);
+            Set* result = new Set(name, Read_and_Create(top, input));
+            return result;
+        }
+        else if (current == "block") {
+
+        }*/
+        else if (current == "else" || current == "then" || current == "=" ||
+            current == "in") {
+            return Read_and_Create(top, input);
         }
     } catch (const std::out_of_range &) {}
     catch (const std::exception &exception) {
@@ -394,116 +606,15 @@ Expression* Read_and_Create(int& top, std::string& input, std::string& current)
     }
 }
 
-class Evaluation {
-
-    static Expression* eval(Val* expr) {
-        return new Val(expr->getValue());
-    }
-
-    Expression* eval(Var* expr) {
-        return eval(fromEnv(expr->getId()));
-    }
-
-    Expression* eval(Add* expr) {
-        return new Val(eval(expr->getLeft())->getValue() +
-                   eval(expr->getRight())->getValue());
-    }
-
-    Expression* eval(If* expr) {
-        if (eval(expr->getLeft())->getValue() >
-            eval(expr->getRight())->getValue())
-        {
-            return eval(expr->getThen());
-        }
-        return eval(expr->getElse());
-    }
-
-    Expression* eval(Let* expr) {
-        return eval(expr->getIn());
-    }
-
-    Expression* eval(Function* expr) {
-        return eval(expr->getBody());
-    }
-
-    Expression* eval(Call* expr) {
-        if (expr->getFunc()->getType() == function) {
-            auto temp = eval(expr->getArg());
-            Expression* tempEnv = nullptr;
-            auto FuncId = expr->getFunc()->getId();
-            if (env.find(FuncId) != env.end()) {
-                tempEnv = env.at(FuncId);
-                env.erase(FuncId);
-            }
-            env.insert({FuncId, temp});
-            auto result = eval((Function*) expr->getFunc());
-            env.erase(FuncId);
-            if (tempEnv != nullptr) {
-                env.insert({FuncId, tempEnv});
-            }
-            return result;
-        } else if (expr->getFunc()->getType() == var) {
-            auto envFunc = env.at(expr->getFunc()->getId());
-            if (envFunc->getType() == function) {
-                auto temp = eval(expr->getArg());
-                Expression* tempEnv = nullptr;
-                auto FuncId = envFunc->getId();
-                if (env.find(FuncId) != env.end()) {
-                    tempEnv = env.at(FuncId);
-                    env.erase(FuncId);
-                }
-                env.insert({FuncId, temp});
-                auto result = eval((Function*) envFunc);
-                env.erase(FuncId);
-                if (tempEnv != nullptr) {
-                    env.insert({FuncId, tempEnv});
-                }
-                return result;
-            }
-        }
-        throw eval_error();
-    }
-
-public:
-
-    Evaluation() = default;
-    ~Evaluation() = default;
-
-    Expression* eval(Expression *expr) {
-        try {
-            switch (expr->getType()) {
-                case val:
-                    return eval((Val*) expr);
-                case var:
-                    return eval((Var*) expr);
-                case add:
-                    return eval((Add*) expr);
-                case _if:
-                    return eval((If*) expr);
-                case let:
-                    return eval((Let*) expr);
-                case function:
-                    return eval((Function*) expr);
-                case call:
-                    return eval((Call*) expr);
-            }
-        } catch (...) {
-            throw eval_error();
-        }
-    }
-};
-
 int main() {
     try {
-        Mapping map;
         int top = 0;
-        std::string input, current;
-        auto Expr = Read_and_Create(top, input, current);
-        Evaluation Eval;
-        auto temp = Eval.eval(Expr);
-        std::cout << "(val " << temp->getValue() << ")" << std::endl;
+        std::string input;
+        auto Expr = Read_and_Create(top, input);
+        auto Eval = Expr->eval();
+        std::cout << Eval->to_string() << std::endl;
         delete Expr;
-        delete temp;
+        delete Eval;
     } catch (...) {
         std::cout << "ERROR";
     }

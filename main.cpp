@@ -4,7 +4,6 @@
 #include <functional>
 #include <stdexcept>
 #include <string>
-#include <stack>
 #include <utility>
 #include <memory>
 
@@ -34,11 +33,12 @@ public:
 
     virtual std::string getId () const = 0;
 
+    virtual std::string to_string() const = 0;
+
     typeInHash getType () {
         return type;
     }
 
-    virtual std::string to_string() const = 0;
 };
 
 std::unordered_map<std::string, Expression*> env;
@@ -158,7 +158,8 @@ public:
     Expression* eval() override {
         auto Left = left->eval();
         auto Right = right->eval();
-        Expression* result = new Val(Left->getValue() + Right->getValue());
+        Expression* result = new Val(Left->getValue() +
+                                    Right->getValue());
         delete Left;
         delete Right;
         return result;
@@ -212,7 +213,7 @@ public:
     Expression* eval() override {
         auto Left = if_left_->eval();
         auto Right = if_right_->eval();
-        Expression* result = nullptr;
+        Expression* result;
         if (Left->getValue() > Right->getValue()) {
             result = then_->eval();
         } else {
@@ -363,45 +364,8 @@ public:
     }
 
     Expression* eval() override {
-        /*if (func_expression->getType() == function) {
-            auto ArgEval = arg_expression->eval();
-            Expression* tempEnv = nullptr;
-            auto FuncId = func_expression->getId();
-            if (env.find(FuncId) != env.end()) {
-                tempEnv = env.at(FuncId);
-                env.erase(FuncId);
-            }
-            env.insert({FuncId, ArgEval});
-            auto result =
-                    ((Function*)func_expression->eval())->getBody()->eval();
-            env.erase(FuncId);
-            if (tempEnv != nullptr) {
-                env.insert({FuncId, tempEnv});
-            }
-            return result;
-        } else if (func_expression->getType() == var) {
-            auto envFunc = env.at(func_expression->getId());
-            if (envFunc->getType() == function) {
-                auto ArgEval = arg_expression->eval();
-                Expression* tempEnv = nullptr;
-                auto FuncId = envFunc->getId();
-                if (env.find(FuncId) != env.end()) {
-                    tempEnv = env.at(FuncId);
-                    env.erase(FuncId);
-                }
-                env.insert({FuncId, ArgEval});
-                auto result =
-                        ((Function*) envFunc->eval())->getBody()->eval();
-                env.erase(FuncId);
-                if (tempEnv != nullptr) {
-                    env.insert({FuncId, tempEnv});
-                }
-                return result;
-            }
-        }*/
-
-        Expression* result = nullptr;
-        Function* Func = nullptr;
+        Expression* result;
+        Function* Func;
         std::string FuncId;
         if (func_expression->getType() == var) {
             auto envFunc = env.at(func_expression->getId());
@@ -600,6 +564,7 @@ Expression* Read_and_Create(int& top, std::string& input)
             current == "in") {
             return Read_and_Create(top, input);
         }
+        throw parse_error();
     } catch (const std::out_of_range &) {}
     catch (const std::exception &exception) {
         throw exception;

@@ -79,7 +79,7 @@ public:
     }
 
     Expression* eval() override {
-        return new Val(integer);
+        return this->Clone();
     }
 
     int getValue() const override {
@@ -112,7 +112,7 @@ public:
     }
 
     Expression* eval() override {
-        return fromEnv(id)->eval()->Clone();
+        return fromEnv(id)->eval();
     }
 
     bool operator==(const Var& that) {
@@ -138,7 +138,7 @@ class Add : public  Expression {
      Expression* right;
 public:
 
-    Add( Expression* left, Expression* right) :
+    Add(Expression* left, Expression* right) :
         Expression(add),
         left(left),
         right(right)
@@ -156,12 +156,10 @@ public:
     }
 
     Expression* eval() override {
-        auto Left = left->eval();
-        auto Right = right->eval();
+        std::unique_ptr<Expression> Left(left->eval());
+        std::unique_ptr<Expression> Right(right->eval());
         Expression* result = new Val(Left->getValue() +
                                     Right->getValue());
-        delete Left;
-        delete Right;
         return result;
     }
 
@@ -211,16 +209,14 @@ public:
     }
 
     Expression* eval() override {
-        auto Left = if_left_->eval();
-        auto Right = if_right_->eval();
+        std::unique_ptr<Expression> Left(if_left_->eval());
+        std::unique_ptr<Expression> Right(if_right_->eval());
         Expression* result;
         if (Left->getValue() > Right->getValue()) {
             result = then_->eval();
         } else {
             result = else_->eval();
         }
-        delete Left;
-        delete Right;
         return result;
     }
 
@@ -268,15 +264,14 @@ public:
 
     Expression* eval() override {
         Expression* tempEnv = nullptr;
-        auto evalId = id_expr->eval();
+        std::unique_ptr<Expression> evalId(id_expr->eval());
         if (env.find(id) != env.end()) {
             tempEnv = env.at(id);
             env.erase(id);
         }
-        env.insert({id, evalId});
+        env.insert({id, evalId.release()});
         auto result = in->eval();
         env.erase(id);
-        delete evalId;
         if (tempEnv != nullptr) {
             env.insert({id, tempEnv});
         }
@@ -364,11 +359,12 @@ public:
     }
 
     Expression* eval() override {
-        Expression* result;
+        Expression* result = nullptr;
         Function* Func;
         std::string FuncId;
         if (func_expression->getType() == var) {
-            auto envFunc = env.at(func_expression->getId());
+            std::unique_ptr<Expression>
+                  envFunc(env.at(func_expression->getId())->Clone());
             if (envFunc->getType() == function) {
                 FuncId = envFunc->getId();
                 Func = (Function*) envFunc->eval();
@@ -381,14 +377,16 @@ public:
         } else {
             throw eval_error();
         }
+
         Expression* tempEnv = nullptr;
-        auto ArgEval = arg_expression->eval();
         if (env.find(FuncId) != env.end()) {
             tempEnv = env.at(FuncId);
             env.erase(FuncId);
         }
-        env.insert({FuncId, ArgEval});
+        std::unique_ptr<Expression> ArgEval(arg_expression->eval());
+        env.insert({FuncId, ArgEval.release()});
         result = Func->getBody()->eval();
+        env.erase(FuncId);
         if (tempEnv != nullptr) {
             env.insert({FuncId, tempEnv});
         }
@@ -509,17 +507,16 @@ std::string getName(int& top, std::string& input) {
     return current;
 }
 
-Expression* Read_and_Create(int& top, std::string& input)
-{
+Expression* Read_and_Create(int& top, std::string& input) {
     std::string current = getName(top, input);
     try {
         if (current == "val") {
             auto name = getName(top, input);
-            return std::make_unique<Val>(std::stoi(name)).release();
+            return new Val(std::stoi(name));
         }
         else if (current == "var") {
             auto name = getName(top, input);
-            return std::make_unique<Var>(name).release();
+            return new Var(name);
         }
         else if (current == "add") {
             Add *result = new Add(Read_and_Create(top, input),
@@ -542,8 +539,8 @@ Expression* Read_and_Create(int& top, std::string& input)
         }
         else if (current == "function") {
             auto name = getName(top, input);
-            auto *result = std::make_unique<Function>(name,
-                                      Read_and_Create(top, input)).release();
+            auto *result = new Function(name,
+                                      Read_and_Create(top, input));
             return result;
         }
         else if (current == "call") {
@@ -575,11 +572,9 @@ int main() {
     try {
         int top = 0;
         std::string input;
-        auto Expr = Read_and_Create(top, input);
-        auto Eval = Expr->eval();
+        std::unique_ptr<Expression Expr(Read_and_Create(top, input));
+        std::unique_ptr<Expression> Eval(Expr->eval());
         std::cout << Eval->to_string() << std::endl;
-        delete Expr;
-        delete Eval;
     } catch (...) {
         std::cout << "ERROR";
     }

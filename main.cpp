@@ -6,10 +6,38 @@
 #include <string>
 #include <utility>
 #include <memory>
+#include <vector>
+#include <stack>
 
-class eval_error : std::exception {};
-class getValue_error : std::exception {};
-class parse_error : std::exception {};
+class eval_error : std::exception {
+    std::string what_str;
+public:
+    eval_error() : what_str("Evaluation error") {}
+
+    const char* what() const noexcept override {
+        return what_str.c_str();
+    }
+};
+
+class getValue_error : std::exception {
+    std::string what_str;
+public:
+    getValue_error() : what_str("getValue() error - not 'Val' type") {}
+
+    const char* what() const noexcept override {
+        return what_str.c_str();
+    }
+};
+
+class parse_error : std::exception {
+    std::string what_str;
+public:
+    parse_error() : what_str("Parsing error") {}
+
+    const char* what() const noexcept override {
+        return what_str.c_str();
+    }
+};
 
 enum typeInHash {val = 1, var = 2, add = 3,
         _if = 4, let = 5,
@@ -39,16 +67,23 @@ public:
 
 };
 
-std::unordered_map<std::string, std::shared_ptr<Expression>> env;
+struct Env {
+    std::unordered_map<std::string, std::unordered_map<std::string,
+            std::shared_ptr<Expression>>> envMap;
 
-std::shared_ptr<Expression> fromEnv(const std::string& V) {
-    try {
-        std::shared_ptr<Expression> found = env.at(V);
-        return found;
-    } catch (const std::out_of_range &exception) {
-        throw exception;
+    std::unordered_map<std::string,std::shared_ptr<Expression>> currentEnv;
+
+    std::shared_ptr<Expression> fromEnv(const std::string &V) {
+        try {
+            std::shared_ptr<Expression> found = currentEnv.at(V);
+            return found;
+        } catch (const std::out_of_range &exception) {
+            throw exception;
+        }
     }
-}
+};
+
+Env env;
 
 class Val : public Expression {
     int integer;
@@ -102,7 +137,7 @@ public:
     ~Var() override = default;
 
     std::shared_ptr<Expression> eval() override {
-        return fromEnv(id);
+        return env.fromEnv(id);
     }
 
     bool operator==(const Var& that) {
@@ -230,16 +265,20 @@ public:
     std::shared_ptr<Expression> eval() override {
         std::shared_ptr<Expression> tempEnv;
         std::shared_ptr<Expression> evalId = id_expr->eval();
-        auto Found_by_Id = env.find(id);
-        if (Found_by_Id != env.end()) {
+        auto Found_by_Id = env.currentEnv.find(id);
+        if (Found_by_Id != env.currentEnv.end()) {
             tempEnv = Found_by_Id->second;
-            env.erase(Found_by_Id);
+            env.currentEnv.erase(Found_by_Id);
         }
-        env.insert({id, evalId});
+        env.currentEnv.insert({id, evalId});
+        if (id_expr->getType() == function) {
+            // добавляет в envMap состояние env при объявлении функции id
+            env.envMap.insert({id, env.currentEnv});
+        }
         auto result = in->eval();
-        env.erase(id);
+        env.currentEnv.erase(id);
         if (tempEnv != nullptr) {
-            env.insert({id, tempEnv});
+            env.currentEnv.insert({id, tempEnv});
         }
         return result;
     }
@@ -311,65 +350,80 @@ public:
     ~Call() override = default;
 
     std::shared_ptr<Expression> eval() override {
-        std::unordered_map<std::string, std::shared_ptr<Expression>> tempEnv;
+        /*std::unordered_map<std::string, std::shared_ptr<Expression>> Env_in_call;
         std::shared_ptr<Expression> result;
         std::shared_ptr<Function> Func;
         std::string FuncId;
         if (func_expression->getType() == var) {
-            std::shared_ptr<Expression> envFunc = env.at(func_expression->getId());
+            std::shared_ptr<Expression> envFunc =
+                    env.at(func_expression->getId());
             if (envFunc->getType() == function) {
                 FuncId = envFunc->getId();
                 Func = std::static_pointer_cast<Function>(envFunc->eval());
-                tempEnv.insert({func_expression->getId(), Func});
+                Env_in_call.insert({func_expression->getId(), Func});
             } else {
                 throw eval_error();
             }
         } else if (func_expression->getType() == function) {
             FuncId = func_expression->getId();
             Func = std::static_pointer_cast<Function>(func_expression->eval());
+        } else {
+            throw parse_error();
         }
 
         std::shared_ptr<Expression> evalArg = arg_expression->eval();
-        std::swap(tempEnv, env);
+        std::swap(Env_in_call, env);
         env.insert({FuncId, evalArg});
         result = Func->getBody()->eval();
-        std::swap(env, tempEnv);
+        std::swap(env, Env_in_call);
         return result;
+    */
 
-        /* version with Lexical scope (has errors though):
-    *
-*       std::shared_ptr<Expression> result = nullptr;
-        Function* Func;
+    /* с поддержкой Lexical scope:*/
+
+        std::shared_ptr<Expression> result;
+        std::shared_ptr<Function> Func;
         std::string FuncId;
+        bool copiedEnv = false;
+        std::unordered_map<std::string, std::shared_ptr<Expression>> Env_in_call;
         if (func_expression->getType() == var) {
-            std::unique_ptr<Expression>
-                  envFunc(env.at(func_expression->getId())->Clone());
+            std::shared_ptr<Expression> envFunc =
+                                    env.currentEnv.at(func_expression->getId());
             if (envFunc->getType() == function) {
+                Env_in_call = env.envMap.at(func_expression->getId());
+                copiedEnv = true;
                 FuncId = envFunc->getId();
-                Func = (Function*) envFunc->eval();
+                Func = std::static_pointer_cast<Function>(envFunc->eval());
             } else {
                 throw eval_error();
             }
         } else if (func_expression->getType() == function) {
+            std::swap(env.currentEnv, Env_in_call);
             FuncId = func_expression->getId();
-            Func = (Function*) func_expression->eval();
+            Func = std::static_pointer_cast<Function>(func_expression->eval());
         } else {
             throw eval_error();
         }
 
         std::shared_ptr<Expression> tempEnv = nullptr;
-        if (env.find(FuncId) != env.end()) {
-            tempEnv = env.at(FuncId);
-            env.erase(FuncId);
+        if (Env_in_call.find(FuncId) != Env_in_call.end()) {
+            tempEnv = Env_in_call.at(FuncId);
+            Env_in_call.erase(FuncId);
         }
-        env.insert({FuncId, arg_expression->eval()});
+        Env_in_call.insert({FuncId, arg_expression->eval()});
         result = Func->getBody()->eval();
-        env.erase(FuncId);
+        Env_in_call.erase(FuncId);
         if (tempEnv != nullptr) {
-            env.insert({FuncId, tempEnv});
+            Env_in_call.insert({FuncId, tempEnv});
         }
-        delete Func;
-        return result;*/
+        if (copiedEnv) {
+            for (const auto& expr : Env_in_call) {
+                env.currentEnv.insert_or_assign(expr.first, expr.second);
+            }
+        } else {
+            std::swap(Env_in_call, env.currentEnv);
+        }
+        return result;
     }
 
     int getValue() const override {
@@ -405,12 +459,12 @@ public:
     }
 
     std::shared_ptr<Expression> eval() override {
-        std::shared_ptr<Expression> temp = nullptr;
-        auto envFoundById = env.find(id);
-        if (envFoundById != env.end()) {
-            env.erase(envFoundById);
+        std::shared_ptr<Expression> temp;
+        auto envFoundById = env.currentEnv.find(id);
+        if (envFoundById != env.currentEnv.end()) {
+            env.currentEnv.erase(envFoundById);
         }
-        env.insert({id, e_val});
+        env.currentEnv.insert({id, e_val});
         return std::make_shared<Set>(id, e_val);
     }
 
@@ -433,6 +487,8 @@ public:
         expr_array(std::move(expr_array))
     {}
 
+    ~Block() override = default;
+
     std::shared_ptr<Expression> eval() override {
         std::shared_ptr<Expression> result;
         for (auto& expr : expr_array) {
@@ -441,11 +497,11 @@ public:
         return result;
     }
 
-    int getValue () {
+    int getValue () const override {
         throw getValue_error();
     }
 
-    std::string getId () {
+    std::string getId () const override {
         throw eval_error();
     }
 
@@ -460,102 +516,113 @@ public:
 
 };
 
-int getCleanString (std::string& str, std::istream& input) {
-    int balance = 0;
-    input >> str;
-    for (int i = 0; i < str.size(); i++) {
-        if (str[i] == '(') {
-            balance++;
-            str.erase(i, i+1);
-            i--;
-        } else if (str[i] == ')') {
-            balance--;
-            str.erase(i, i+1);
-            i--;
-        }
-    }
-    if (str.empty()) {
-        balance += getCleanString(str, input);
-    }
-    return balance;
-}
+class Parser {
 
-std::shared_ptr<Expression> Read_and_Create(std::istream& input) {
-    std::string current;
-    getCleanString(current, input);
-    if (current == "val") {
-        std::string integer;
-        getCleanString(integer, input);
-        return std::make_shared<Val>(std::stoi(integer));
-    }
-    else if (current == "var") {
-        std::string name;
-        getCleanString(name, input);
-        return std::make_shared<Var>(name);
-    }
-    else if (current == "add") {
-        return std::make_shared<Add>(Read_and_Create(input),
-                              Read_and_Create(input));
-    }
-    else if (current == "if") {
-        std::shared_ptr<Expression> if_left = Read_and_Create(input);
-        std::shared_ptr<Expression> if_right = Read_and_Create(input);
-        std::string temp;
-        input >> temp;
-        if (temp != "then") {
-            throw parse_error();
+    void getCleanString(std::string &str, std::istream &input) {
+        input >> str;
+        for (int i = 0; i < str.size(); i++) {
+            if (str[i] == '(') {
+                balance++;
+                str.erase(i, i + 1);
+                i--;
+            } else if (str[i] == ')') {
+                balance--;
+                str.erase(i, i + 1);
+                i--;
+            }
         }
-        std::shared_ptr<Expression> if_then = Read_and_Create(input);
-        input >> temp;
-        if (temp != "else") {
-            throw parse_error();
+        if (str.empty() && balance > 0) {
+            getCleanString(str, input);
         }
-        std::shared_ptr<Expression> if_else = Read_and_Create(input);
-        return std::make_shared<If>(if_left, if_right, if_then, if_else);
     }
-    else if (current == "let") {
-        std::string name;
-        input >> name;
-        std::string temp;
-        input >> temp;
-        if (temp != "=") {
-            throw parse_error();
-        }
-        std::shared_ptr<Expression> id_expr = Read_and_Create(input);
-        input >> temp;
-        if (temp != "in") {
-            throw parse_error();
-        }
-        std::shared_ptr<Expression> in_expr = Read_and_Create(input);
-        return std::make_shared<Let>(name, id_expr, in_expr);
-    }
-    else if (current == "function") {
-        std::string id_name;
-        input >> id_name;
-        return std::make_shared<Function>(id_name, Read_and_Create(input));
-    }
-    else if (current == "call") {
-        std::shared_ptr<Expression> func = Read_and_Create(input);
-        std::shared_ptr<Expression> arg = Read_and_Create(input);
-        return std::make_shared<Call>(func, arg);
-    }
-    else if (current == "set") {
-        std::string name;
-        getCleanString(name, input);
-        return std::make_shared<Set>(name, Read_and_Create(input));
-    }
-    else if (current == "block") {
-        int balance = 1;
-        while (balance != 0) {
 
+    int balance;
+
+public:
+
+    Parser() : balance(0) {}
+    ~Parser() = default;
+
+    std::shared_ptr<Expression> Read_and_Create(std::istream &input) {
+        std::string current;
+        getCleanString(current, input);
+        if (current == "val") {
+            std::string integer;
+            getCleanString(integer, input);
+            return std::make_shared<Val>(std::stoi(integer));
+        } else if (current == "var") {
+            std::string name;
+            getCleanString(name, input);
+            return std::make_shared<Var>(name);
+        } else if (current == "add") {
+            return std::make_shared<Add>(Read_and_Create(input),
+                                         Read_and_Create(input));
+        } else if (current == "if") {
+            std::shared_ptr<Expression> if_left = Read_and_Create(input);
+            std::shared_ptr<Expression> if_right = Read_and_Create(input);
+            std::string temp;
+            input >> temp;
+            if (temp != "then") {
+                throw parse_error();
+            }
+            std::shared_ptr<Expression> if_then = Read_and_Create(input);
+            input >> temp;
+            if (temp != "else") {
+                throw parse_error();
+            }
+            std::shared_ptr<Expression> if_else = Read_and_Create(input);
+            return std::make_shared<If>(if_left, if_right, if_then, if_else);
+        } else if (current == "let") {
+            std::string name;
+            input >> name;
+            std::string temp;
+            input >> temp;
+            if (temp != "=") {
+                throw parse_error();
+            }
+            std::shared_ptr<Expression> id_expr = Read_and_Create(input);
+            input >> temp;
+            if (temp != "in") {
+                throw parse_error();
+            }
+            std::shared_ptr<Expression> in_expr = Read_and_Create(input);
+            return std::make_shared<Let>(name, id_expr, in_expr);
+        } else if (current == "function") {
+            std::string id_name;
+            input >> id_name;
+            return std::make_shared<Function>(id_name, Read_and_Create(input));
+        } else if (current == "call") {
+            std::shared_ptr<Expression> func = Read_and_Create(input);
+            std::shared_ptr<Expression> arg = Read_and_Create(input);
+            return std::make_shared<Call>(func, arg);
+        } else if (current == "set") {
+            std::string name;
+            getCleanString(name, input);
+            return std::make_shared<Set>(name, Read_and_Create(input));
+        } else if (current == "block") {
+            int block_balance = balance;
+            std::vector<std::shared_ptr<Expression>> expr_array;
+            while (balance != block_balance - 1) {
+                try {
+                    expr_array.insert(expr_array.end(), Read_and_Create(input));
+                } catch (parse_error&) {
+                    if (balance == 0) {
+                        return std::make_shared<Block>(expr_array);
+                    } else {
+                        throw parse_error();
+                    }
+                }
+            }
+            return std::make_shared<Block>(expr_array);
         }
+        throw parse_error();
     }
-    throw parse_error();
-}
+};
 
 int main() {
     try {
-        std::shared_ptr<Expression> Expr = Read_and_Create(std::cin);
+        Parser parser;
+        std::shared_ptr<Expression> Expr = parser.Read_and_Create(std::cin);
         std::shared_ptr<Expression> Eval = Expr->eval();
         std::cout << Eval->to_string() << std::endl;
     } catch (...) {

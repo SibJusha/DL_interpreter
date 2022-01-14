@@ -379,7 +379,7 @@ public:
         return result;
     */
 
-    /* с поддержкой Lexical scope:*/
+    /* with Lexical scope's support:*/
 
         std::shared_ptr<Expression> result;
         std::shared_ptr<Function> Func;
@@ -475,7 +475,6 @@ public:
     std::string to_string() const override {
         return "(set " + id + " " + e_val->to_string() + ")";
     }
-
 };
 
 class Block : public Expression {

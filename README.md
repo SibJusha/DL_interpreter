@@ -1,2 +1,2 @@
-# DL_interpreter
+# DL Interpreter
 Interpreter for the model programming language DL.

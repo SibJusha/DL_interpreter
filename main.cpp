@@ -39,7 +39,8 @@ public:
     }
 };
 
-enum typeInHash {val = 1, var = 2, add = 3, _if = 4, let = 5,
+enum typeInHash {val = 1, var = 2, add = 3,
+        _if = 4, let = 5,
     function = 6, call = 7, set = 8, block = 9};
 
 class Expression {
@@ -517,20 +518,18 @@ public:
 class Parser {
 
     void getCleanString(std::string &str, std::istream &input) {
-        std::string temp;
-        input >> temp;
-
-        int balance = 0;
-        for (char c : temp) {
-            if (c == '(') {
+        input >> str;
+        for (int i = 0; i < str.size(); i++) {
+            if (str[i] == '(') {
                 balance++;
-            } else if (c == ')') {
+                str.erase(i, i + 1);
+                i--;
+            } else if (str[i] == ')') {
                 balance--;
-            } else {
-                str += c;
+                str.erase(i, i + 1);
+                i--;
             }
         }
-        
         if (str.empty() && balance > 0) {
             getCleanString(str, input);
         }

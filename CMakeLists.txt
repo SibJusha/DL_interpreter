@@ -8,6 +8,8 @@ project(
     HOMEPAGE_URL "https://github.com/SibJusha/dl_interpreter"
     LANGUAGES CXX
 )
+    
+add_compile_options(-O3 -Wall -Wextra)
 
 add_executable(DL_interpreter 
     src/main.cpp

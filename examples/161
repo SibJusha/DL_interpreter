@@ -1,0 +1,3 @@
+(let F = (function arg (add (val 1) (var arg))) in
+(let arg = (val 80) in
+(add (var arg) (call (var F) (val 5)))))

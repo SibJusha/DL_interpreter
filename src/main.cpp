@@ -8,7 +8,7 @@ int main() {
         std::shared_ptr<Expression> Eval = Expr->eval();
         std::cout << Eval->to_string() << std::endl;
     } catch (std::exception& Exception) {
-        std::cout << "ERROR" << std::endl;
+        std::cout << "ERROR: ";
         std::cout << Exception.what() << std::endl;
     }
     return 0;

@@ -1,0 +1,7 @@
+(let a = (val 4) in
+    (let bar = (function arg (set a (var arg))) in
+        (let foo = (function arg
+            (block
+                (call (var bar) (val 228))
+                (var a)
+            )) in (call (var foo) (val 337)))))

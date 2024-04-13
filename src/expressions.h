@@ -9,14 +9,7 @@
 enum typeInHash {val = 1, var = 2, add = 3, _if = 4, let = 5,
     function = 6, call = 7, set = 8, block = 9};
 
-struct Env {
-    std::unordered_map<std::string, std::unordered_map<std::string,
-            std::shared_ptr<Expression>>> envMap;
-
-    std::unordered_map<std::string,std::shared_ptr<Expression>> currentEnv;
-
-    std::shared_ptr<Expression> fromEnv(const std::string &V);
-};
+struct Env;
 
 class Expression {
     const typeInHash type;
@@ -63,7 +56,7 @@ class Val : public Expression {
 public:
     explicit Val(int n);
 
-    Val() : Val(0) {}
+    Val();
 
     ~Val() override = default;
 
@@ -106,7 +99,7 @@ public:
 
     Add(std::shared_ptr<Expression> left, std::shared_ptr<Expression> right);
 
-    Add() : Add(nullptr, nullptr) {}
+    Add();
 
     ~Add() override = default;
 
@@ -129,7 +122,7 @@ public:
     If( std::shared_ptr<Expression> if_left_,  std::shared_ptr<Expression> if_right_,
         std::shared_ptr<Expression> then_,  std::shared_ptr<Expression> else_);
 
-    If() : If(nullptr, nullptr, nullptr, nullptr) {}
+    If(); 
 
     ~If() override = default;
 
@@ -191,7 +184,7 @@ public:
 
     Call (std::shared_ptr<Expression> func,  std::shared_ptr<Expression> expr);
 
-    Call () : Call(nullptr, nullptr) {}
+    Call (); 
 
     ~Call() override = default;
 
@@ -237,6 +230,15 @@ public:
     std::string get_id () const override;
 
     std::string to_string() const override;
+};
+
+struct Env {
+    std::unordered_map<std::string, std::unordered_map<std::string,
+            std::shared_ptr<Expression>>> envMap;
+
+    std::unordered_map<std::string,std::shared_ptr<Expression>> currentEnv;
+
+    std::shared_ptr<Expression> fromEnv(const std::string &V);
 };
 
 #endif // __EXPRESSIONS_H__
